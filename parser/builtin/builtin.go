@@ -13,5 +13,6 @@ import (
 	_ "github.com/qiniu/logkit/parser/nginx"
 	_ "github.com/qiniu/logkit/parser/qiniu"
 	_ "github.com/qiniu/logkit/parser/raw"
+	_ "github.com/qiniu/logkit/parser/splittoarray"
 	_ "github.com/qiniu/logkit/parser/syslog"
 )
