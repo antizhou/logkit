@@ -471,6 +471,43 @@ func SetMapValue(m map[string]interface{}, val interface{}, coercive bool, keys 
 	return nil
 }
 
+func SetExtractMapValue(m map[string]interface{}, val interface{}, coercive bool, newKey string, keys ...string) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	curr := m
+	subKLen := len(keys) - 1
+	for i, k := range keys {
+		if i == subKLen { // 提取json字段时，keys最后一个key被newKey覆盖
+			break
+		}
+		if _, ok := curr[k]; !ok {
+			n := make(map[string]interface{})
+			curr[k] = n
+			curr = n
+			continue
+		}
+		if _, ok := curr[k].(map[string]interface{}); !ok {
+			if _, ok := curr[k].(Data); !ok {
+				if coercive {
+					n := make(map[string]interface{})
+					curr[k] = n
+				} else {
+					err := fmt.Errorf("SetMapValue failed, %v is not the type of map[string]interface{}", curr[k])
+					return err
+				}
+			}
+		}
+		if m, ok := curr[k].(Data); ok {
+			curr = map[string]interface{}(m)
+		} else {
+			curr = curr[k].(map[string]interface{})
+		}
+	}
+	curr[newKey] = val
+	return nil
+}
+
 //通过层级key设置value值, 如果keys不存在则不加前缀，否则加前缀
 func SetMapValueExistWithPrefix(m map[string]interface{}, val interface{}, prefix string, keys ...string) error {
 	if len(keys) == 0 {
@@ -503,6 +540,34 @@ func SetMapValueExistWithPrefix(m map[string]interface{}, val interface{}, prefi
 		curr[keys[len(keys)-1]] = val
 	}
 	return nil
+}
+
+func KeyExist(m map[string]interface{}, val interface{}, keys ...string) (bool, error) {
+	if len(keys) == 0 {
+		return false, nil
+	}
+	var curr map[string]interface{}
+	curr = m
+	for _, k := range keys[0 : len(keys)-1] {
+		finalVal, ok := curr[k]
+		if !ok {
+			n := make(map[string]interface{})
+			curr[k] = n
+			curr = n
+			continue
+		}
+		//判断val是否为map[string]interface{}类型
+		if curr, ok = finalVal.(map[string]interface{}); ok {
+			continue
+		}
+		if curr, ok = finalVal.(Data); ok {
+			continue
+		}
+		return false, fmt.Errorf("KeyExist failed, %v is not the type of map[string]interface{}", keys)
+	}
+	//判断val(k)是否存在
+	_, exist := curr[keys[len(keys)-1]]
+	return exist, nil
 }
 
 //通过层级key删除key-val,并返回被删除的val,是否删除成功
@@ -866,6 +931,9 @@ func CheckErr(err error) error {
 	se, ok := err.(*StatsError)
 	var errorCnt int64
 	if ok {
+		if se.Errors == 0 && se.LastError == "" {
+			return nil
+		}
 		errorCnt = se.Errors
 		err = errors.New(se.LastError)
 	} else {
@@ -873,7 +941,7 @@ func CheckErr(err error) error {
 	}
 
 	if err != nil {
-		return fmt.Errorf("%v parse line errors occurred, error %v ", errorCnt, err.Error())
+		return fmt.Errorf("%v parse line errors occurred, error %v", errorCnt, err.Error())
 	}
 	return nil
 }

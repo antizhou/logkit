@@ -229,7 +229,7 @@ func NewLogExportRunner(rc RunnerConfig, cleanChan chan<- cleaner.CleanSignal, r
 		cl *cleaner.Cleaner
 	)
 	mode := rc.ReaderConfig["mode"]
-	if mode == ModeCloudTrail {
+	if mode == ModeCloudTrail || mode == ModeCloudTrailV2 {
 		syncDir := rc.ReaderConfig[KeySyncDirectory]
 		if syncDir == "" {
 			bucket, prefix, region, ak, sk, _ := cloudtrail.GetS3UserInfo(rc.ReaderConfig)
@@ -304,6 +304,18 @@ func NewLogExportRunner(rc RunnerConfig, cleanChan chan<- cleaner.CleanSignal, r
 			if senderConfig[senderConf.KeyPandoraDescription] == "" {
 				senderConfig[senderConf.KeyPandoraDescription] = LogkitAutoCreateDescription
 			}
+		}
+		if senderType, ok := senderConfig[senderConf.KeySenderType]; ok && senderType == senderConf.TypeOpenFalconTransfer {
+			if meta.GetMode() == ModeSnmp {
+				intervalStr, _ := rc.ReaderConfig.GetStringOr(KeySnmpReaderInterval, "30s")
+				interval, err := time.ParseDuration(intervalStr)
+				if err != nil {
+					return nil, err
+				}
+				senderConfig[senderConf.KeyCollectInterval] = fmt.Sprintf("%d", int64(interval.Seconds()))
+				senderConfig[senderConf.KeyName] = rc.RunnerName
+			}
+			log.Infof("senderConfig = %+v", senderConfig)
 		}
 		senderConfig, err := setPandoraServerConfig(senderConfig, serverConfigs)
 		if err != nil {
@@ -395,7 +407,7 @@ func (r *LogExportRunner) tryRawSend(s sender.Sender, datas []string, times int)
 	)
 	rawSender, ok := s.(sender.RawSender)
 	if !ok {
-		log.Errorf("runner[%v]: sender not raw sender, can not use tryRawSend", r.RunnerName, err)
+		log.Errorf("runner[%s]: sender not raw sender, can not use tryRawSend %v", r.RunnerName, err)
 		return true
 	}
 
@@ -725,9 +737,13 @@ func (r *LogExportRunner) readLines(dataSourceTag string) []Data {
 	se, ok := err.(*StatsError)
 	r.rsMutex.Lock()
 	if ok {
-		numErrs = se.Errors
-		err = errors.New(se.LastError)
-		r.rs.ParserStats.Errors += se.Errors
+		if se.Errors == 0 && se.LastError == "" {
+			err = nil
+		} else {
+			numErrs = se.Errors
+			err = errors.New(se.LastError)
+			r.rs.ParserStats.Errors += se.Errors
+		}
 		r.rs.ParserStats.Success += se.Success
 	} else if err != nil {
 		numErrs = 1

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,10 +54,9 @@ func getHttpFetchReader(port string) (*Reader, error) {
 }
 
 func TestNewHttpFetchReader(t *testing.T) {
-	var server *http.Server
 	var err error
 	go func() {
-		server, err = startServer(8888)
+		_, err = startServer(8888)
 		assert.NoError(t, err)
 	}()
 
@@ -71,6 +71,9 @@ func TestNewHttpFetchReader(t *testing.T) {
 	times := 0
 	for line == "" && times < 5 {
 		line, err = httpReader.ReadLine()
+		if err != nil && strings.Contains(err.Error(), "connection refused") {
+			return
+		}
 		assert.NoError(t, err)
 		time.Sleep(2 * time.Second)
 	}

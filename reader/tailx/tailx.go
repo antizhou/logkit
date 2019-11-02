@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -178,6 +179,7 @@ func (ar *ActiveReader) Start() {
 		}
 		atomic.CompareAndSwapInt32(&ar.status, StatusStopping, StatusStopped)
 		log.Warnf("Runner[%s] ActiveReader %s was stopped", ar.runnerName, ar.originpath)
+		return // 若此处不返回，上面强制设置成 StatusStopped 状态，会被瞬间改变成StatusInit状态（下一行代码），导致Run()里面的退出逻辑失效。
 	}
 
 	atomic.StoreInt32(&ar.status, StatusInit)
@@ -196,11 +198,7 @@ func (ar *ActiveReader) Stop() error {
 		log.Debug(err)
 		return err
 	} else {
-		if !IsSelfRunner(ar.runnerName) {
-			log.Warnf("Runner[%s] ActiveReader %s was closing", ar.runnerName, ar.originpath)
-		} else {
-			log.Debugf("Runner[%s] ActiveReader %s was closing", ar.runnerName, ar.originpath)
-		}
+		log.Debugf("Runner[%s] ActiveReader %s was closing", ar.runnerName, ar.originpath)
 	}
 
 	cnt := 0
@@ -209,11 +207,7 @@ func (ar *ActiveReader) Stop() error {
 		cnt++
 		//超过3个1s，即3s，就强行退出
 		if cnt > 3 {
-			if !IsSelfRunner(ar.runnerName) {
-				log.Errorf("Runner[%s] ActiveReader %s was not closed after 3s, force closing it", ar.runnerName, ar.originpath)
-			} else {
-				log.Debugf("Runner[%s] ActiveReader %s was not closed after 3s, force closing it", ar.runnerName, ar.originpath)
-			}
+			log.Debugf("Runner[%s] ActiveReader %s was not closed after 3s, force closing it", ar.runnerName, ar.originpath)
 			break
 		}
 		time.Sleep(1 * time.Second)
@@ -234,7 +228,14 @@ func (ar *ActiveReader) Run() {
 
 	var err error
 	timer := time.NewTicker(time.Second)
-	defer timer.Stop()
+	defer func() {
+		if e := recover(); e != nil {
+			log.Errorf("Panic: %v", e)
+			log.Error("stack trace: ", string(debug.Stack()))
+		}
+		timer.Stop()
+		atomic.StoreInt32(&ar.status, StatusStopped)
+	}()
 	for {
 		if atomic.LoadInt32(&ar.status) == StatusStopped || atomic.LoadInt32(&ar.status) == StatusStopping {
 			atomic.CompareAndSwapInt32(&ar.status, StatusStopping, StatusStopped)
@@ -331,11 +332,7 @@ func (ar *ActiveReader) hasStopped() bool {
 
 func (ar *ActiveReader) Close() error {
 	defer func() {
-		if !IsSelfRunner(ar.runnerName) {
-			log.Warnf("Runner[%s] ActiveReader %s was closed", ar.runnerName, ar.originpath)
-		} else {
-			log.Debugf("Runner[%s] ActiveReader %s was closed", ar.runnerName, ar.originpath)
-		}
+		log.Debugf("Runner[%s] ActiveReader %s was closed", ar.runnerName, ar.originpath)
 	}()
 	ar.SyncMeta()
 	brCloseErr := ar.br.Close()
@@ -390,11 +387,6 @@ func (ar *ActiveReader) ReadDone() bool {
 }
 
 func (ar *ActiveReader) expired(expire time.Duration) bool {
-	// 如果过期时间为 0，则永不过期
-	if expire.Nanoseconds() == 0 {
-		return false
-	}
-
 	fi, err := os.Stat(ar.realpath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -405,6 +397,10 @@ func (ar *ActiveReader) expired(expire time.Duration) bool {
 		} else {
 			log.Debugf("Runner[%s] stat log %s error %v, will not expire it...", ar.runnerName, ar.originpath, err)
 		}
+		return false
+	}
+	// 如果过期时间为 0，则永不过期
+	if expire.Nanoseconds() == 0 {
 		return false
 	}
 	if fi.ModTime().Add(expire).Before(time.Now()) && atomic.LoadInt32(&ar.inactive) > 0 {

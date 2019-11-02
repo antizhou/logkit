@@ -126,7 +126,12 @@ func NewCustomManager(conf ManagerConfig, rr *reader.Registry, pr *parser.Regist
 	}
 	var collectLogRunner *self.LogRunner
 	if conf.CollectLogEnable {
-		rdConf := self.SetReaderConfig(self.GetReaderConfig(), conf.CollectLogPath, "", conf.ReadFrom)
+		var logDir, filePattern string
+		if conf.CollectLogPath != "" {
+			logDir = filepath.Dir(conf.CollectLogPath)
+			filePattern = filepath.Base(conf.CollectLogPath) + "-*"
+		}
+		rdConf := self.SetReaderConfig(self.GetReaderConfig(), logDir, filePattern, "", conf.ReadFrom)
 		sdConf := self.SetSenderConfig(self.GetSenderConfig(), conf.Pandora)
 		collectLogRunner, err = self.NewLogRunner(rdConf, self.GetParserConfig(), sdConf, conf.EnvTag)
 		if err != nil {
@@ -213,11 +218,12 @@ func (m *Manager) RemoveWithConfig(confPath string, isDelete bool) (err error) {
 
 	m.removeCleanQueue(runner.Cleaner())
 	runner.Stop()
+	length := len(m.runners)
 	delete(m.runners, confPath)
 	if isDelete {
 		delete(m.runnerConfigs, confPath)
 	}
-	log.Infof("runner %s be removed, total %d", runner.Name(), len(m.runners))
+	log.Infof("runner %s be removed, total %d", runner.Name(), length)
 	if runnerStatus, ok := runner.(StatusPersistable); ok {
 		runnerStatus.StatusBackup()
 	}
