@@ -277,7 +277,6 @@ func main() {
 		go loopRotateLogs(filepath.Join(logdir, logpattern), defaultRotateSize, 10*time.Second, stopRotate)
 		conf.CleanSelfPattern = logpattern + "-*"
 		conf.CleanSelfDir = logdir
-		conf.ManagerConfig.CollectLogPath = filepath.Join(logdir, logpattern+"-*")
 	}
 
 	log.Infof("Welcome to use Logkit, Version: %v \n\nConfig: %#v", NextVersion, conf)

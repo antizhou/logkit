@@ -44,16 +44,6 @@ type ManagerConfig struct {
 	DisableWeb   bool          `json:"disable_web"`
 	ServerBackup bool          `json:"-"`
 	AuditDir     string        `json:"audit_dir"`
-
-	CollectLog
-}
-
-type CollectLog struct {
-	CollectLogPath   string `json:"collect_log_path"`
-	CollectLogEnable bool   `json:"collect_log_enable"`
-	ReadFrom         string `json:"read_from"`
-	EnvTag           string `json:"-"`
-	Pandora
 }
 
 type cleanQueue struct {
@@ -126,19 +116,6 @@ func NewCustomManager(conf ManagerConfig, rr *reader.Registry, pr *parser.Regist
 		return nil, err
 	}
 	var collectLogRunner *self.LogRunner
-	if conf.CollectLogEnable {
-		var logDir, filePattern string
-		if conf.CollectLogPath != "" {
-			logDir = filepath.Dir(conf.CollectLogPath)
-			filePattern = filepath.Base(conf.CollectLogPath) + "-*"
-		}
-		rdConf := self.SetReaderConfig(self.GetReaderConfig(), logDir, filePattern, "", conf.ReadFrom)
-		sdConf := self.SetSenderConfig(self.GetSenderConfig(), conf.Pandora)
-		collectLogRunner, err = self.NewLogRunner(rdConf, self.GetParserConfig(), sdConf, conf.EnvTag)
-		if err != nil {
-			log.Errorf("new collect log runner failed: %v", err)
-		}
-	}
 
 	m := &Manager{
 		ManagerConfig:    conf,

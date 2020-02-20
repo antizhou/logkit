@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"regexp"
 	"runtime/debug"
 	"strings"
@@ -18,12 +17,9 @@ import (
 	"github.com/qiniu/logkit/conf"
 	"github.com/qiniu/logkit/parser"
 	parserconfig "github.com/qiniu/logkit/parser/config"
-	"github.com/qiniu/logkit/parser/raw"
 	"github.com/qiniu/logkit/reader"
-	"github.com/qiniu/logkit/reader/bufreader"
 	. "github.com/qiniu/logkit/reader/config"
 	"github.com/qiniu/logkit/sender"
-	"github.com/qiniu/logkit/sender/pandora"
 	"github.com/qiniu/logkit/utils"
 	. "github.com/qiniu/logkit/utils/models"
 )
@@ -100,65 +96,6 @@ type LogRunner struct {
 
 	stopped  int32
 	exitChan chan struct{}
-}
-
-func NewLogRunner(rdConf, psConf, sdConf conf.MapConf, envTag string) (*LogRunner, error) {
-	if rdConf == nil {
-		rdConf = conf.DeepCopy(readerConfig)
-	}
-	if psConf == nil {
-		psConf = conf.DeepCopy(parserConfig)
-	}
-	if sdConf == nil {
-		sdConf = conf.DeepCopy(senderConfig)
-	}
-	logPath := rdConf["log_path"]
-	if logPath == "" {
-		dir, err := os.Getwd()
-		if err != nil {
-			return nil, fmt.Errorf("get system current workdir error %v", err)
-		}
-		rdConf["log_path"] = filepath.Join(dir, "logkit.log*")
-	} else {
-		path, err := filepath.Abs(logPath)
-		if err != nil {
-			return nil, fmt.Errorf("get system current workdir error %v", err)
-		}
-		rdConf["log_path"] = path
-	}
-
-	var (
-		rd  reader.Reader
-		ps  parser.Parser
-		sd  sender.Sender
-		err error
-	)
-	meta, err := reader.NewMetaWithConf(rdConf)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if err != nil && rd != nil {
-			rd.Close()
-		}
-	}()
-
-	if rd, err = bufreader.NewFileDirReader(meta, rdConf); err != nil {
-		return nil, err
-	}
-	if ps, err = raw.NewParser(psConf); err != nil {
-		return nil, err
-	}
-
-	if sd, err = pandora.NewSender(sdConf); err != nil {
-		return nil, err
-	}
-	// ft sender
-	if sd, err = sender.NewFtSender(sd, sdConf, meta.FtSaveLogPath()); err != nil {
-		return nil, err
-	}
-
-	return NewLogRunnerWithService(rdConf, psConf, sdConf, meta, rd, ps, sd, envTag), nil
 }
 
 func NewLogRunnerWithService(rdConf, psConf, sdConf conf.MapConf,
@@ -353,77 +290,6 @@ func (lr *LogRunner) GetTransformerConfig() conf.MapConf {
 
 func (lr *LogRunner) GetSenderConfig() conf.MapConf {
 	return lr.senderConfig
-}
-
-func SetReaderConfig(readConf conf.MapConf, logpath, filePattern, metapath, from string) conf.MapConf {
-	rdConf := conf.DeepCopy(readConf)
-	logpath = strings.TrimSpace(logpath)
-	if logpath != "" {
-		rdConf["log_path"] = logpath
-	}
-	if filePattern != "" {
-		rdConf[ValidFilePattern] = filePattern
-	}
-	if metapath != "" {
-		path, err := filepath.Abs(metapath)
-		if err != nil {
-			log.Debugf("got metapath[%s] absolute filepath failed: %v", metapath, err)
-			rdConf["meta_path"] = path
-		} else {
-			rdConf["meta_path"] = metapath
-		}
-	}
-
-	from = strings.TrimSpace(from)
-	if from == "" {
-		return rdConf
-	}
-	switch from {
-	case WhenceOldest:
-		rdConf["read_from"] = WhenceOldest
-	case WhenceNewest:
-		rdConf["read_from"] = WhenceNewest
-	default:
-		log.Debugf("reader from %s unsupported", from)
-		rdConf["read_from"] = WhenceNewest
-	}
-
-	return rdConf
-}
-
-func SetSenderConfig(sendConf conf.MapConf, pandora Pandora) conf.MapConf {
-	sdConf := conf.DeepCopy(sendConf)
-	logDBHost := strings.TrimSpace(pandora.LogDB)
-	if logDBHost != "" {
-		sdConf["pandora_logdb_host"] = logDBHost
-	}
-
-	pandoraHost := strings.TrimSpace(pandora.Pipeline)
-	if pandoraHost != "" {
-		sdConf["pandora_host"] = pandoraHost
-	}
-
-	pandoraRegion := strings.TrimSpace(pandora.Region)
-	if pandoraRegion != "" {
-		sdConf["pandora_region"] = pandoraRegion
-	}
-
-	name := strings.TrimSpace(pandora.Name)
-	if name != "" {
-		sdConf["pandora_workflow_name"] = name
-		sdConf["pandora_repo_name"] = name
-	}
-
-	ak := strings.TrimSpace(pandora.AK)
-	if ak != "" {
-		sdConf["pandora_ak"] = ak
-	}
-
-	sk := strings.TrimSpace(pandora.SK)
-	if sk != "" {
-		sdConf["pandora_sk"] = sk
-	}
-	return sdConf
 }
 
 func GetReaderConfig() conf.MapConf {
